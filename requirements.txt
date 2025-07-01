@@ -1,0 +1,8 @@
+--extra-index-url https://download.pytorch.org/whl/cu126
+
+gradio
+numpy
+opencv-contrib-python
+tqdm
+torch
+yolov5
