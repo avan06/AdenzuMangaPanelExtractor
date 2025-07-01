@@ -30,6 +30,7 @@ def process_images(
     input_files,
     method,
     separate_folders,
+    rtl_order,
     # Traditional method params
     merge_mode,
     split_joint,
@@ -69,12 +70,14 @@ def process_images(
                         split_joint_panels=split_joint,
                         fallback=fallback,
                         mode=output_mode,
-                        merge=merge_mode
+                        merge=merge_mode,
+                        rtl_order=rtl_order
                     )
                 elif method == "AI":
                     panel_blocks = generate_panel_blocks_by_ai(
                         image=image,
-                        merge=merge_mode
+                        merge=merge_mode,
+                        rtl_order=rtl_order
                     )
                 else:
                     # Should not happen with Radio button selection
@@ -168,6 +171,12 @@ def main():
                     info="If unchecked, all panels will be in the root of the ZIP, with filenames prefixed by the original image name."
                 )
 
+                rtl_order = gr.Checkbox(
+                    label="Right-to-Left (RTL) Reading Order",
+                    value=True, # Default to True for manga
+                    info="Check this for manga that is read from right to left. Uncheck for western comics."
+                )
+
                 # --- Shared Parameters ---
                 gr.Markdown("### Shared Parameters")
                 merge_mode = gr.Dropdown(
@@ -219,6 +228,7 @@ def main():
                 input_files,
                 method,
                 separate_folders,
+                rtl_order,
                 merge_mode,
                 split_joint,
                 fallback,

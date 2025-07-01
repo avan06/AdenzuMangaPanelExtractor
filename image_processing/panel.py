@@ -308,6 +308,71 @@ def get_fallback_panels(
     
     return panels
 
+def _sort_items_by_reading_order(items: list, rtl_order: bool, image_height: int) -> list:
+    """
+    Sorts contours or bounding boxes based on reading order (top-to-bottom, then LTR/RTL).
+    This function is robust against minor vertical misalignments by grouping items into rows.
+
+    Parameters:
+    - items: A list of contours (np.ndarray) or bounding boxes (tuple of x,y,w,h).
+    - rtl_order: If True, sort horizontally from right-to-left.
+    - image_height: The height of the original image, used for calculating tolerance.
+
+    Returns:
+    - A sorted list of the input items.
+    """
+    if not items:
+        return []
+
+    # Unify items into a list of (item, bbox) tuples for consistent processing
+    item_bboxes = []
+    for item in items:
+        if isinstance(item, np.ndarray): # It's a contour
+            bbox = cv2.boundingRect(item)
+        else: # It's already a bbox tuple
+            bbox = item
+        item_bboxes.append((item, bbox))
+
+    # Initial sort by top y-coordinate
+    item_bboxes.sort(key=lambda x: x[1][1])
+
+    rows = []
+    current_row = []
+    if item_bboxes:
+        # Start the first row
+        current_row.append(item_bboxes[0])
+        first_item_in_row_bbox = item_bboxes[0][1]
+        
+        # Define a dynamic tolerance based on the height of the first panel in a row.
+        # A panel can be considered in the same row if its top is not lower than 
+        # the first panel's top + 30% of its height. This is a robust heuristic.
+        # We also add a minimum tolerance for very short panels.
+        y_tolerance = max(10, int(first_item_in_row_bbox[3] * 0.3))
+
+        for item, bbox in item_bboxes[1:]:
+            # If the current panel's y is within the tolerance of the current row's start y
+            if bbox[1] < first_item_in_row_bbox[1] + y_tolerance:
+                current_row.append((item, bbox))
+            else:
+                # Finish the current row
+                # Sort the completed row horizontally
+                current_row.sort(key=lambda x: -x[1][0] if rtl_order else x[1][0])
+                rows.append(current_row)
+                
+                # Start a new row
+                current_row = [(item, bbox)]
+                first_item_in_row_bbox = bbox
+                y_tolerance = max(10, int(first_item_in_row_bbox[3] * 0.3))
+
+        # Add the last processed row
+        if current_row:
+            current_row.sort(key=lambda x: -x[1][0] if rtl_order else x[1][0])
+            rows.append(current_row)
+
+    # Flatten the rows and extract the original items in the correct order
+    sorted_items = [item for row in rows for item, bbox in row]
+    
+    return sorted_items
 
 def generate_panel_blocks(
         image: np.ndarray, 
@@ -315,7 +380,8 @@ def generate_panel_blocks(
         split_joint_panels: bool = False,
         fallback: bool = True,
         mode: str = OutputMode.BOUNDING,
-        merge: str = MergeMode.NONE
+        merge: str = MergeMode.NONE,
+        rtl_order: bool = False
 ) -> list[np.ndarray]:
     """
     Generates the separate panel images from the base image
@@ -324,6 +390,7 @@ def generate_panel_blocks(
     - mode: The mode to use for extraction
         - 'masked': Extracts the panels by cuting out only the inside of the contours
         - 'bounding': Extracts the panels by using the bounding boxes of the contours
+    - rtl_order: If True, sort panels from right-to-left. Otherwise, left-to-right.
     """
 
     grayscale_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -332,6 +399,12 @@ def generate_panel_blocks(
     page_without_background = get_page_without_background(grayscale_image, background_mask, split_joint_panels)
     contours, _ = cv2.findContours(page_without_background, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     contours = list(filter(lambda c: is_contour_sufficiently_big(c, image.shape[0], image.shape[1]), contours))
+    
+    # Sort by top-to-bottom (y-coordinate) first, then by horizontal order.
+    # For RTL, we sort by x-coordinate in descending order (by negating it).
+    if contours:
+        image_height = image.shape[0]
+        contours = _sort_items_by_reading_order(contours, rtl_order, image_height)
 
     def get_panels(contours):
         panels = extract_panels(image, contours, mode=mode)
@@ -353,9 +426,16 @@ def generate_panel_blocks(
     return panels
 
 
-def generate_panel_blocks_by_ai(image: np.ndarray, merge: str = MergeMode.NONE) -> list[np.ndarray]:
+def generate_panel_blocks_by_ai(
+        image: np.ndarray,
+        merge: str = MergeMode.NONE,
+        rtl_order: bool = False
+) -> list[np.ndarray]:
     """
     Generates the separate panel images from the base image using AI with merge
+    
+    Parameters:
+    - rtl_order: If True, sort panels from right-to-left. Otherwise, left-to-right.
     """
     grayscale_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     processed_image = preprocess_image(grayscale_image)
@@ -369,6 +449,11 @@ def generate_panel_blocks_by_ai(image: np.ndarray, merge: str = MergeMode.NONE) 
         x1, y1, x2, y2, conf, cls = detection.tolist()  # Convert to Python list
         x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
         bounding_boxes.append((x1, y1, x2 - x1, y2 - y1))
+        
+    # Bounding boxes are already (x, y, w, h), so we access coordinates directly.
+    if bounding_boxes:
+        image_height = image.shape[0]
+        bounding_boxes = _sort_items_by_reading_order(bounding_boxes, rtl_order, image_height)
 
     def get_panels(bounding_boxes):
         panels = []
