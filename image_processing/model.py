@@ -20,10 +20,23 @@ class Model:
         if sys.stderr is None:
             sys.stderr = open(os.devnull, 'w')
 
-        temp = pathlib.PosixPath
-        pathlib.PosixPath = pathlib.WindowsPath
-        self.model = torch.hub.load('ultralytics/yolov5', 'custom', path=resource_path('ai-models/2024-11-00/best.pt'))
-        pathlib.PosixPath = temp
+        # Check if the current operating system is Windows
+        is_windows = (sys.platform == "win32")
+
+        if is_windows:
+            # If on Windows, apply the patch temporarily
+            temp = pathlib.PosixPath
+            pathlib.PosixPath = pathlib.WindowsPath
+            try:
+                # Load the model with the patch applied
+                self.model = torch.hub.load('ultralytics/yolov5', 'custom', path=resource_path('ai-models/2024-11-00/best.pt'))
+            finally:
+                # CRITICAL: Always restore the original class, even if loading fails
+                pathlib.PosixPath = temp
+        else:
+            # If on Linux, macOS, or other systems, load the model directly
+            self.model = torch.hub.load('ultralytics/yolov5', 'custom', path=resource_path('ai-models/2024-11-00/best.pt'))
+        
     
     def __call__(self, *args, **kwds):
         if self.model is None:
