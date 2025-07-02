@@ -14,7 +14,7 @@ import tempfile
 import shutil
 from tqdm import tqdm
 
-from image_processing.panel import generate_panel_blocks, generate_panel_blocks_by_ai
+from image_processing.panel import generate_panel_blocks, generate_panel_blocks_by_ai, remove_border
 
 # --- UI Description ---
 DESCRIPTION = """
@@ -31,6 +31,7 @@ def process_images(
     method,
     separate_folders,
     rtl_order,
+    remove_borders,
     # Traditional method params
     merge_mode,
     split_joint,
@@ -98,6 +99,8 @@ def process_images(
 
                 # Save each panel block
                 for i, panel in enumerate(panel_blocks):
+                    if remove_borders:
+                        panel = remove_border(panel)
                     if separate_folders:
                         # e.g., /tmp/xyz/image1/panel_0.png
                         panel_filename = f"panel_{i}{file_ext if file_ext else '.png'}"
@@ -177,6 +180,12 @@ def main():
                     info="Check this for manga that is read from right to left. Uncheck for western comics."
                 )
 
+                remove_borders = gr.Checkbox(
+                    label="Attempt to remove panel borders",
+                    value=False,
+                    info="Crops the image to the content area. May not be perfect for all images."
+                )
+
                 # --- Shared Parameters ---
                 gr.Markdown("### Shared Parameters")
                 merge_mode = gr.Dropdown(
@@ -229,6 +238,7 @@ def main():
                 method,
                 separate_folders,
                 rtl_order,
+                remove_borders,
                 merge_mode,
                 split_joint,
                 fallback,
