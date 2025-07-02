@@ -199,12 +199,21 @@ def main():
                 # --- Method-specific Parameters ---
                 with gr.Group(visible=True) as traditional_params:
                     gr.Markdown("### Traditional Method Parameters")
-                    split_joint = gr.Checkbox(label="Split Joint Panels", value=False)
-                    fallback = gr.Checkbox(label="Fallback to Threshold Extraction", value=True)
+                    split_joint = gr.Checkbox(
+                        label="Split Joint Panels",
+                        value=False,
+                        info="For panels that are touching or share a single border line. This algorithm actively tries to draw a separation line between them. Useful if multiple panels are being detected as one large block, but may occasionally split a single large panel by mistake."
+                    )
+                    fallback = gr.Checkbox(
+                        label="Fallback to Threshold Extraction",
+                        value=True,
+                        info="If the main algorithm fails to find multiple panels (e.g., on a borderless page or a full-bleed splash page), this enables a secondary, simpler extraction method. It's a 'safety net' that can find panels when the primary method cannot."
+                    )
                     output_mode = gr.Dropdown(
                         label="Output Mode",
                         choices=['bounding', 'masked'],
-                        value='bounding'
+                        value='bounding',
+                        info="bounding: Crops a rectangular area around each panel. Best for general use. \nmasked: Crops along the exact, non-rectangular shape of the panel, filling the outside with a background color. Best for irregularly shaped panels."
                     )
 
                 with gr.Group(visible=False) as ai_params:
