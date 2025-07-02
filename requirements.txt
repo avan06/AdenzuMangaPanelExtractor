@@ -6,3 +6,5 @@ opencv-contrib-python
 tqdm
 torch
 yolov5
+
+git+https://github.com/avan06/image-panel-border-cleaner.git

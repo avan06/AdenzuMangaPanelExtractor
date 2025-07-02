@@ -14,7 +14,8 @@ import tempfile
 import shutil
 from tqdm import tqdm
 
-from image_processing.panel import generate_panel_blocks, generate_panel_blocks_by_ai, remove_border
+from image_processing.panel import generate_panel_blocks, generate_panel_blocks_by_ai
+from image_panel_border_cleaner import remove_border
 
 # --- UI Description ---
 DESCRIPTION = """
