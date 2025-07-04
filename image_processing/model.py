@@ -11,10 +11,13 @@ class Model:
         if not self.imported:
             self.imported = True
             import torch
+            import torch.serialization
             import pathlib
             import sys
             import os
             from myutils.respath import resource_path
+            from yolov5.models.yolo import DetectionModel
+            torch.serialization.add_safe_globals([DetectionModel]) # Exception: Weights only load failed.
 
         # Redirect sys.stderr to a file or a valid stream
         if sys.stderr is None:
