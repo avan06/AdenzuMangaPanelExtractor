@@ -10,9 +10,9 @@ import gradio as gr
 import os
 import cv2
 import numpy as np
-import tempfile
 import shutil
 from tqdm import tqdm
+from datetime import datetime
 
 from image_processing.panel import generate_panel_blocks, generate_panel_blocks_by_ai
 from manga_panel_processor import remove_border
@@ -49,20 +49,31 @@ def process_images(
     if not input_files:
         raise gr.Error("No images uploaded. Please upload at least one image.")
 
-    # Create a temporary directory to store the processed panels
-    with tempfile.TemporaryDirectory() as temp_panel_dir:
-        print(f"Created temporary directory for panels: {temp_panel_dir}")
+    # Create a unique, temporary sub-directory inside the 'output' folder for this run.
+    main_output_dir = "output"
+    os.makedirs(main_output_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # All intermediate panel files will be stored here before being zipped.
+    # This directory will be created inside 'output' and removed after zipping.
+    panel_output_dir = os.path.join(main_output_dir, f"temp_panels_{timestamp}")
+    os.makedirs(panel_output_dir)
 
+    try:
         for image_file in tqdm(input_files, desc="Processing Images"):
             try:
                 # The image_file object from gr.Files has a .name attribute with the temp path
                 original_filename = os.path.basename(image_file.name)
                 filename_no_ext, file_ext = os.path.splitext(original_filename)
+                
+                # Read image with Unicode path support to handle non-ASCII filenames.
+                # Read the file into a numpy array first.
+                stream = np.fromfile(image_file.name, np.uint8)
+                # Decode the numpy array into an image.
+                image = cv2.imdecode(stream, cv2.IMREAD_COLOR)
 
-                # Read the image using OpenCV
-                image = cv2.imread(image_file.name)
                 if image is None:
-                    print(f"Warning: Could not read image {original_filename}. Skipping.")
+                    print(f"Warning: Could not read or decode image {original_filename}. Skipping.")
                     continue
 
                 # Select the processing function based on the chosen method
@@ -85,63 +96,78 @@ def process_images(
                     # Should not happen with Radio button selection
                     panel_blocks = []
 
+                # If no panels were detected, use the original image as a single panel.
                 if not panel_blocks:
-                    print(f"Warning: No panels found in {original_filename}.")
-                    continue
+                    print(f"Warning: No panels found in {original_filename}. Using the original image.")
+                    panel_blocks = [image]
 
                 # Determine the output path for the panels of this image
                 if separate_folders:
                     # Create a sub-directory for each image
-                    image_output_folder = os.path.join(temp_panel_dir, filename_no_ext)
+                    image_output_folder = os.path.join(panel_output_dir, filename_no_ext)
                     os.makedirs(image_output_folder, exist_ok=True)
                 else:
                     # Output all panels to the root of the temp directory
-                    image_output_folder = temp_panel_dir
+                    image_output_folder = panel_output_dir
 
                 # Save each panel block
                 for i, panel in enumerate(panel_blocks):
                     if remove_borders:
                         panel = remove_border(panel)
+                    
+                    save_ext = file_ext if file_ext else '.png'
                     if separate_folders:
-                        # e.g., /tmp/xyz/image1/panel_0.png
-                        panel_filename = f"panel_{i}{file_ext if file_ext else '.png'}"
+                        # e.g., /tmp/xyz/image_name/panel_0.png
+                        panel_filename = f"panel_{i}{save_ext}"
                     else:
-                        # e.g., /tmp/xyz/image1_panel_0.png
-                        panel_filename = f"{filename_no_ext}_panel_{i}{file_ext if file_ext else '.png'}"
+                        # e.g., /tmp/xyz/image_name_panel_0.png
+                        panel_filename = f"{filename_no_ext}_panel_{i}{save_ext}"
 
                     output_path = os.path.join(image_output_folder, panel_filename)
-                    cv2.imwrite(output_path, panel)
+                    
+                    # Write image with Unicode path support.
+                    # Encode the image to a memory buffer based on the file extension.
+                    is_success, buffer = cv2.imencode(save_ext, panel)
+                    if not is_success:
+                        print(f"Warning: Could not encode panel {panel_filename}. Skipping.")
+                        continue
+                    # Write the buffer to a file using Python's standard I/O.
+                    with open(output_path, 'wb') as f:
+                        f.write(buffer)
 
             except Exception as e:
                 print(f"Error processing {original_filename}: {e}")
-                raise gr.Error(f"Failed to process {original_filename}: {e}")
-
+                # Optionally, re-raise as a Gradio error to notify the user.
+                # raise gr.Error(f"Failed to process {original_filename}: {e}")
+                
         # After processing all images, check if any panels were generated
-        if not os.listdir(temp_panel_dir):
+        if not os.listdir(panel_output_dir):
             raise gr.Error("Processing complete, but no panels were extracted from any of the images.")
-            
-        # --- Create a zip file ---
+
+        # --- Create a zip file in the 'output' directory ---
+        zip_filename_base = f"adenzu_output_{timestamp}"
+
+        # Define the full path for our archive (path + filename without extension).
+        zip_path_base = os.path.join(main_output_dir, zip_filename_base)
         
-        # Create a separate temporary directory to hold the final zip file.
-        # Gradio will handle cleaning this up after serving the file to the user.
-        zip_output_dir = tempfile.mkdtemp()
-        
-        # Define the base name for our archive (path + filename without extension)
-        zip_path_base = os.path.join(zip_output_dir, "adenzu_output")
-        
-        # Create the zip file. shutil.make_archive will add the '.zip' extension.
-        # The first argument is the full path for the output file (minus extension).
-        # The third argument is the directory to be zipped.
+        # Create the zip file from the temporary panel directory.
         final_zip_path = shutil.make_archive(
             base_name=zip_path_base,
             format='zip',
-            root_dir=temp_panel_dir
+            root_dir=panel_output_dir
         )
         
         print(f"Created ZIP file at: {final_zip_path}")
         # The function returns the full path to the created zip file.
         # Gradio takes this path and provides it as a download link.
         return final_zip_path
+
+    finally:
+        # Clean up the temporary panel directory, leaving only the final ZIP file.
+        # This block executes whether the 'try' block succeeds or fails.
+        if os.path.exists(panel_output_dir):
+            print(f"Cleaning up temporary panel directory: {panel_output_dir}")
+            shutil.rmtree(panel_output_dir)
 
 
 def main():
